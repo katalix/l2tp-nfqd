@@ -1,0 +1,6 @@
+#!/bin/sh -xe
+libtoolize -c -f -i
+aclocal --force -I m4
+autoheader -f
+automake --add-missing --copy
+autoconf -f

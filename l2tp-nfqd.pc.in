@@ -1,0 +1,8 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+includedir=@includedir@
+
+Name: l2tp-nfqd
+Description: L2TP NFQUEUE listener
+Version: @PACKAGE_VERSION@
+Cflags: -I${includedir}
