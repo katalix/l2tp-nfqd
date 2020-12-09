@@ -223,7 +223,7 @@ static void output(struct l2tp_nfq *n, struct l2tp_nfq_msg *msg)
         /* recurse! */
         output(n, msg);
     } else {
-        ssize_t nb = send(n->out_fd, msg, sizeof(*msg), MSG_EOR | MSG_DONTWAIT | MSG_NOSIGNAL);
+        ssize_t nb = send(n->out_fd, msg, msg->len, MSG_EOR | MSG_WAITALL | MSG_NOSIGNAL);
         if (nb <= 0) {
             nfq_log(n, LOG_INFO, "nfqueue: closed '%s'", n->result_path);
             close(n->out_fd);
@@ -236,6 +236,8 @@ static void handle_pkt(struct nfq_data *tb, struct l2tp_nfq *n)
 {
     struct l2tp_nfq_msg msg = {
         .mark = nfq_get_nfmark(tb),
+        .len = sizeof(msg),
+        .reserved = 1,
     };
 
     if (msg.mark) {
