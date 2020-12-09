@@ -102,6 +102,7 @@ struct l2tp_ctl_hdr_v2 {
 
 #define L2TP_AVP_MSG_SCCRQ          1
 #define L2TP_AVP_TYPE_MESSAGE       0
+#define L2TP_AVP_TYPE_HOSTNAME      7
 #define L2TP_AVP_TYPE_TUNNEL_ID     9
 
 struct l2tp_avp_hdr {
@@ -140,6 +141,7 @@ static void nfq_log(struct l2tp_nfq *n, int level, const char *fmt, ...)
 static bool get_peer_info(struct l2tp_nfq *n, void *data, size_t nbytes, struct l2tp_nfq_msg *msg)
 {
     struct l2tp_avp_hdr *avp = data;
+    uint16_t msg_type = 0;
 
     if (nbytes < L2TP_AVP_HEADER_LEN) return false;
 
@@ -153,6 +155,8 @@ static bool get_peer_info(struct l2tp_nfq *n, void *data, size_t nbytes, struct 
     }
 
     msg->peer_tid = 0;
+    msg->hostname[0] = '\0';
+    msg->len = sizeof(*msg);
     while (nbytes >= L2TP_AVP_HEADER_LEN) {
         uint16_t avp_type = ntohs(avp->type);
         uint16_t avp_vendor_id = ntohs(avp->vendor_id);
@@ -167,26 +171,37 @@ static bool get_peer_info(struct l2tp_nfq *n, void *data, size_t nbytes, struct 
         if ((avp_type == L2TP_AVP_TYPE_MESSAGE) &&
             (avp_vendor_id == L2TP_AVP_VENDOR_IETF)) {
             uint16_t *val16;
-            uint16_t msg_type;
             if (L2TP_AVP_HDR_FLAGS(avp_flaglen) & L2TP_AVP_HDR_HBIT) return false;
             if (avp_len != (L2TP_AVP_HEADER_LEN + sizeof(uint16_t))) return false;
             val16 = (uint16_t *) &avp->value[0];
             msg_type = ntohs(*val16);
             if (msg_type != L2TP_AVP_MSG_SCCRQ) return false;
-        }
-        if ((avp_type == L2TP_AVP_TYPE_TUNNEL_ID) &&
-            (avp_vendor_id == L2TP_AVP_VENDOR_IETF)) {
+        } else if ((avp_type == L2TP_AVP_TYPE_TUNNEL_ID) &&
+                   (avp_vendor_id == L2TP_AVP_VENDOR_IETF)) {
             uint16_t *val16;
             if (L2TP_AVP_HDR_FLAGS(avp_flaglen) & L2TP_AVP_HDR_HBIT) return false;
             if (avp_len != (L2TP_AVP_HEADER_LEN + sizeof(uint16_t))) return false;
             val16 = (uint16_t *) &avp->value[0];
-            msg->peer_tid = ntohs(*val16);
-            if (msg->peer_tid) return true;
+            if (0 == msg->peer_tid) {
+                msg->peer_tid = ntohs(*val16);
+            }
+        } else if ((avp_type == L2TP_AVP_TYPE_HOSTNAME) &&
+                   (avp_vendor_id == L2TP_AVP_VENDOR_IETF)) {
+            if (L2TP_AVP_HDR_FLAGS(avp_flaglen) & L2TP_AVP_HDR_HBIT) return false;
+            if (avp_len <= L2TP_AVP_HEADER_LEN) return false;
+            if (!msg->hostname[0]) {
+                memcpy(&msg->hostname[0], &avp->value[0], avp_len - L2TP_AVP_HEADER_LEN);
+                msg->hostname[avp_len - L2TP_AVP_HEADER_LEN] = '\0';
+                msg->len += (avp_len - L2TP_AVP_HEADER_LEN);
+            }
         }
+
+        if (msg_type && msg->peer_tid && msg->hostname[0]) return true;
+
         avp = (struct l2tp_avp_hdr *)(((char*)avp) + avp_len);
         nbytes -= avp_len;
     }
-    /* if we get here, a TUNNEL_ID AVP is missing */
+    /* if we get here, MESSAGE_TYPE, TUNNEL_ID or HOSTNAME AVP is missing */
     return false;
 }
 
@@ -269,9 +284,10 @@ static void handle_pkt(struct nfq_data *tb, struct l2tp_nfq *n)
             if (lh->nr) return;                        /* NR=0 for SCCRQ */
             len = data + len - &lh->data[0];
             data = &lh->data[0];
-            if (!get_peer_info(n, data, len, msg)) return; /* peer TID is required */
-            nfq_log(n, LOG_INFO, "nfqueue: L2TPv2 SCCRQ from %s, TID %" PRIu32 " mark %" PRIu32,
-                    inet_ntoa(msg->peer_ip), msg->peer_tid, msg->mark);
+            if (!get_peer_info(n, data, len, msg)) return; /* not SCCRQ or required AVPs missing */
+            nfq_log(n, LOG_INFO, "nfqueue: L2TPv2 SCCRQ from %s, TID %" PRIu32
+                    " hostname '%s' mark %" PRIu32,
+                    inet_ntoa(msg->peer_ip), msg->peer_tid, msg->hostname, msg->mark);
             output(n, msg);
         }
         pktb_free(pb);
