@@ -234,13 +234,11 @@ static void output(struct l2tp_nfq *n, struct l2tp_nfq_msg *msg)
 
 static void handle_pkt(struct nfq_data *tb, struct l2tp_nfq *n)
 {
-    struct l2tp_nfq_msg msg = {
-        .mark = nfq_get_nfmark(tb),
-        .len = sizeof(msg),
-        .reserved = 1,
-    };
-
-    if (msg.mark) {
+    char msg_buf[L2TP_NFQ_MSG_MAX_SIZE];
+    struct l2tp_nfq_msg *msg = (void *) &msg_buf[0];
+    uint32_t mark = nfq_get_nfmark(tb);
+    
+    if (mark) {
         int len;
         unsigned char *data;
         struct pkt_buff *pb;
@@ -253,7 +251,12 @@ static void handle_pkt(struct nfq_data *tb, struct l2tp_nfq *n)
         if (ip->protocol == IPPROTO_UDP) {
             struct udphdr *udp;
             struct l2tp_ctl_hdr_v2 *lh;
-            msg.peer_ip.s_addr = ip->saddr;
+            memset(msg, 0, sizeof(*msg));
+            msg->hostname[0] = '\0';
+            msg->reserved = 1;
+            msg->len = sizeof(*msg);
+            msg->mark = mark;
+            msg->peer_ip.s_addr = ip->saddr;
             nfq_ip_set_transport_header(pb, ip);
             udp = nfq_udp_get_hdr(pb);
             lh = (void *)(udp + 1);
@@ -266,11 +269,11 @@ static void handle_pkt(struct nfq_data *tb, struct l2tp_nfq *n)
             if (lh->nr) return;                        /* NR=0 for SCCRQ */
             len = data + len - &lh->data[0];
             data = &lh->data[0];
-            msg.peer_tid = get_peer_tid(n, data, len);
-            if (!msg.peer_tid) return; /* peer TID is required */
+            msg->peer_tid = get_peer_tid(n, data, len);
+            if (!msg->peer_tid) return; /* peer TID is required */
             nfq_log(n, LOG_INFO, "nfqueue: L2TPv2 SCCRQ from %s, TID %" PRIu32 " mark %" PRIu32,
-                    inet_ntoa(msg.peer_ip), msg.peer_tid, msg.mark);
-            output(n, &msg);
+                    inet_ntoa(msg->peer_ip), msg->peer_tid, msg->mark);
+            output(n, msg);
         }
         pktb_free(pb);
     }
