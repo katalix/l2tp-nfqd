@@ -10,13 +10,17 @@
 #define L2TP_NFQD_H
 
 /**
- * A message sent by l2tp-nfqd is a flat structure.
+ * A message sent by l2tp-nfqd is a variable length, flat structure.
  */
 struct l2tp_nfq_msg {
-    uint32_t reserved;          /**< Reserved for future expansion. Must be zero */
+    uint16_t reserved;          /**< Reserved for future expansion. Must be 1 */
+    uint16_t len;               /**< message size */
     struct in_addr peer_ip;     /**< IPv4 address of peer */
-    uint32_t peer_tid;          /**< Peer L2TP tunnel-id  */
+    uint32_t peer_tid;          /**< Peer L2TP tunnel-id, from SCCRQ */
     uint32_t mark;              /**< Netfilter mark */
+    char hostname[];            /**< Peer Hostname, from SCCRQ */
 };
+
+#define L2TP_NFQ_MSG_MAX_SIZE (sizeof(struct l2tp_nfq_msg) + 1024)
 
 #endif /* L2TP_NFQD_H */
